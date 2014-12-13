@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Net;
 using Nest;
 
@@ -35,7 +34,7 @@ namespace LogAnalyzer
             if (!IsConnected())
             {
                 _IsConnected = false;
-                throw new Exception(string.Format("Cannot connect to elasticsearch process at {0}:{1}. {2}", _ConnectionUri.Host, _ConnectionUri.Port));
+                throw new Exception(string.Format("Cannot connect to elasticsearch process at {0}:{1}.", _ConnectionUri.Host, _ConnectionUri.Port));
             }
 
             return _Client;

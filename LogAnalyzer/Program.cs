@@ -22,7 +22,7 @@ namespace ElasticSearchConsoleApplication
 
             var stopWatch = new Stopwatch();
 
-            var logAnalyzer = new LogAnalyzer();
+            var logAnalyzer = new LogAnalyzer.LogAnalyzer();
 
             var logValuePairs = new List<KeyValuePair<LogEntry, LogEntry>>();
 

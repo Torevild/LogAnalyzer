@@ -1,7 +1,11 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using ElasticSearchConsoleApplication;
 using Nest;
 
@@ -18,7 +22,7 @@ namespace LogAnalyzer
 
         public SearchController()
         {
-           _ElasticSearchProxy = new ElasticSearchProxy(null);
+            _ElasticSearchProxy = new ElasticSearchProxy(null);
         }
 
         public int LoadToMemory(LogFileType logFileType)
@@ -31,17 +35,72 @@ namespace LogAnalyzer
                 return 0;
             }
 
-            int filesNumber = logLoader.GetFilesNumber();
+            int totalFiles = logLoader.GetFilesNumber();
+            int filesNumber = totalFiles;
 
-            foreach (var logEntry in logLoader.Load(filesNumber))
+            Console.WriteLine("Going to load: {0} zvm log files", filesNumber);
+
+            var queue = logLoader.BeginLoad(logLoader.GetFilenames(filesNumber));
+
+
+
+            var task = Task.Factory.StartNew(() =>
             {
-                List<LogEntry> logEntries = logEntry.ToList();
-                if (logEntries.Count > 0)
+                var list = new List<LogEntry>();
+
+                var cancellationTokenSource = new CancellationTokenSource();
+                CancellationToken cancellationToken = cancellationTokenSource.Token;
+
+                while (true)
                 {
-                    _ElasticSearchProxy.GetConnection().BulkAsync(x => x.IndexMany(logEntries));
+                    try
+                    {
+                        var client = _ElasticSearchProxy.GetConnection();
+                        foreach (var logEntry in queue.GetConsumingEnumerable(cancellationToken))
+                        {
+                            if (logEntry == null)
+                            {
+                                cancellationTokenSource.Cancel();
+                            }
+
+                            if (cancellationToken.IsCancellationRequested)
+                            {
+                                if (list.Count > 0)
+                                {
+                                    var internalList = Interlocked.Exchange(ref list, new List<LogEntry>());
+                                    client.BulkAsync(x => x.IndexMany(internalList));
+                                    list.Clear();
+                                }
+                                return;
+                            }
+
+                            list.Add(logEntry);
+
+                            if (list.Count > 20000)
+                            {
+                                var internalList = Interlocked.Exchange(ref list, new List<LogEntry>());
+                                Task.Factory.StartNew(() =>
+                                {
+                                    client.BulkAsync(x => x.IndexMany(internalList));
+                                });
+                            }
+
+                        }
+                    }
+                    catch (AggregateException ex)
+                    {
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        Console.WriteLine("mu");
+                    }
                 }
-            }
-            
+
+            });
+
+            task.Wait();
+
+
             return filesNumber;
         }
 
@@ -63,7 +122,7 @@ namespace LogAnalyzer
 
         public void Clean()
         {
-            _ElasticSearchProxy.GetConnection().DeleteIndex(x => x.AllIndices());
+            _ElasticSearchProxy.GetConnection().DeleteIndexAsync(x => x.AllIndices());
         }
 
 

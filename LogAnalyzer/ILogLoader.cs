@@ -1,14 +1,20 @@
-﻿using System;
+﻿using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
+using System.Threading;
 
-namespace ElasticSearchConsoleApplication
+namespace LogAnalyzer
 {
     public interface ILogLoader
     {
         int GetFilesNumber();
         IEnumerable<IEnumerable<LogEntry>> Load(int filesNumber);
         bool IsAny();
+
+        BlockingCollection<LogEntry> BeginLoad(IEnumerable<string> filenames);
+
+        
+
+        IEnumerable<string> GetFilenames(int filesNumber);
+        
     }
 }

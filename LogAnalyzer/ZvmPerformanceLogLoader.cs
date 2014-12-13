@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using ElasticSearchConsoleApplication;
 
@@ -87,6 +88,16 @@ namespace LogAnalyzer
                 return false;
             }
             return Directory.EnumerateFiles(m_folder, m_logFilenamePattern, SearchOption.AllDirectories).Any();
+        }
+
+        public BlockingCollection<LogEntry> BeginLoad(IEnumerable<string> filenames)
+        {
+            throw new NotImplementedException();
+        }
+
+        public IEnumerable<string> GetFilenames(int filesNumber)
+        {
+            throw new NotImplementedException();
         }
 
         public int GetFilesNumber()

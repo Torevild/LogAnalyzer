@@ -1,15 +1,9 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using Nest;
-using Nest.Resolvers;
 
-namespace ElasticSearchConsoleApplication
+namespace LogAnalyzer
 {
     public class LogEntry
     {
-        //[ElasticAttributes(AnalyzerBase )]
         public string LogFilename { get; set; }
         public string OwnerId { get; set; }
         public string TaskId { get; set; }

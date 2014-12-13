@@ -1,19 +1,11 @@
 ﻿using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
-using System.Security.Permissions;
-using System.Threading;
-using System.Threading.Tasks;
+using ElasticSearchConsoleApplication;
 using Nest;
-using Nest.Resolvers.Converters;
-using Nest.Resolvers.Converters.Aggregations;
-using Newtonsoft.Json;
 
-namespace ElasticSearchConsoleApplication
+namespace LogAnalyzer
 {
     public enum LogFileType
     {
@@ -22,18 +14,11 @@ namespace ElasticSearchConsoleApplication
     }
     public class SearchController
     {
-        private readonly ElasticClient _Client;
+        private readonly ElasticSearchProxy _ElasticSearchProxy;
 
         public SearchController()
         {
-            var node = new Uri("http://localhost:9200");
-
-            var settings = new ConnectionSettings(
-                node,
-                "my-application"
-            );
-
-            _Client = new ElasticClient(settings);
+           _ElasticSearchProxy = new ElasticSearchProxy(null);
         }
 
         public int LoadToMemory(LogFileType logFileType)
@@ -48,59 +33,15 @@ namespace ElasticSearchConsoleApplication
 
             int filesNumber = logLoader.GetFilesNumber();
 
-            var asyncResults = new ConcurrentBag<Task<IBulkResponse>>();
-
-            var cpuCounter = new PerformanceCounter("Processor Information", "% Processor Time", "_Total");
-
-            var finishedResetEvent = new ManualResetEvent(false);
-
-            var getResultsTask = new Task(() =>
-            {
-                while (!finishedResetEvent.WaitOne(0, false) || !asyncResults.IsEmpty)
-                {
-                    Task<IBulkResponse> bulkResponse;
-                    if (!asyncResults.TryTake(out bulkResponse))
-                    {
-                        Console.WriteLine("Skipping");
-                        continue;
-                    }
-
-                    if (!bulkResponse.IsCompleted)
-                    {
-                        bulkResponse.Wait();
-                    }
-                    if (bulkResponse.IsFaulted)
-                    {
-                        Console.WriteLine("Got error on loading:{0}", bulkResponse.Exception);
-                    }
-                    
-                }
-            });
-
-            getResultsTask.Start();
-
             foreach (var logEntry in logLoader.Load(filesNumber))
             {
-                IEnumerable<LogEntry> entry = logEntry;
-                var result = _Client.BulkAsync(x => x.IndexMany(entry));
-                asyncResults.Add(result);
+                List<LogEntry> logEntries = logEntry.ToList();
+                if (logEntries.Count > 0)
+                {
+                    _ElasticSearchProxy.GetConnection().BulkAsync(x => x.IndexMany(logEntries));
+                }
             }
-
-            finishedResetEvent.Set();
-
-
-
-
-
-            //var processorUsage = cpuCounter.NextValue();
-            //if (processorUsage > 90)
-            //{
-            //    Console.WriteLine(processorUsage);
-            //    Thread.Sleep(TimeSpan.FromMilliseconds(400));
-            //}
-
-
-
+            
             return filesNumber;
         }
 
@@ -110,10 +51,8 @@ namespace ElasticSearchConsoleApplication
             {
                 case LogFileType.ZvmLog:
                     return new ZvmLogLoader();
-                    break;
                 case LogFileType.ZvmPerformanceLog:
                     return new ZvmPerformanceLogLoader();
-                    break;
                 default:
                     throw new ArgumentOutOfRangeException("logFileType");
             }
@@ -124,13 +63,13 @@ namespace ElasticSearchConsoleApplication
 
         public void Clean()
         {
-            _Client.DeleteIndex(x => x.AllIndices());
+            _ElasticSearchProxy.GetConnection().DeleteIndex(x => x.AllIndices());
         }
 
 
         public List<string> GetAllTaskIds()
         {
-            var searchResults3 = _Client.Search<LogEntry>(s => s
+            var searchResults3 = _ElasticSearchProxy.GetConnection().Search<LogEntry>(s => s
                 .From(0)
               .Filter(x => x.Bool(y => y.Must(z => z.Term("TaskId", "00000000"))))
               .Aggregations(x => x.Terms("LogEntry", y => y.Field("taskId")))
@@ -159,7 +98,7 @@ namespace ElasticSearchConsoleApplication
 
         public List<string> GetAllThreadIds()
         {
-            var searchResults3 = _Client.Search<LogEntry>(s => s
+            var searchResults3 = _ElasticSearchProxy.GetConnection().Search<LogEntry>(s => s
                 .From(0)
                 .Aggregations(x => x.Terms("LogEntry", y => y.Field(t => t.ThreadId).Size(500)))
               );
@@ -184,19 +123,19 @@ namespace ElasticSearchConsoleApplication
             foreach (var taskId in taskIds)
             {
                 var searchResults =
-                    _Client.Search<LogEntry>(s => s.From(0).Size(Int32.MaxValue).Query(q => q.Term(p => p.TaskId, taskId)));
+                    _ElasticSearchProxy.GetConnection().Search<LogEntry>(s => s.From(0).Size(Int32.MaxValue).Query(q => q.Term(p => p.TaskId, taskId)));
 
-                var searchResults2 = _Client.Search<LogEntry>(s => s.From(0)
+                var searchResults2 = _ElasticSearchProxy.GetConnection().Search<LogEntry>(s => s.From(0)
                     .Size(1)
                     .Query(q => q
                         .Term(p => p.MethodName, "settaskname") && q.Term(p => p.TaskId, taskId)));
 
-                var searchResults3 = _Client.Search<LogEntry>(s => s.From(0)
+                var searchResults3 = _ElasticSearchProxy.GetConnection().Search<LogEntry>(s => s.From(0)
                     .Size(1)
                     .Query(q => q
                         .Term(p => p.MethodName, "createremotemanagertask") && q.Term(p => p.TaskId, taskId)));
 
-                var searchResults4 = _Client.Search<LogEntry>(s => s.From(0)
+                var searchResults4 = _ElasticSearchProxy.GetConnection().Search<LogEntry>(s => s.From(0)
                     .Size(Int32.MaxValue)
                     .Query(q => q
                         .Term(p => p.LogLevel, "Error") && q.Term(p => p.TaskId, taskId)));
@@ -235,7 +174,7 @@ namespace ElasticSearchConsoleApplication
 
         public List<LogEntry> GetLogEntriesForThread(string threadId, DateTime startRange, DateTime endRange)
         {
-            var searchResults = _Client.Search<LogEntry>(s => s
+            var searchResults = _ElasticSearchProxy.GetConnection().Search<LogEntry>(s => s
                 .From(0)
                 .Filter(u => u.Range(r => r.OnField(e => e.TimeStamp).GreaterOrEquals(startRange).LowerOrEquals(endRange)))
                 .Size(Int32.MaxValue)
@@ -255,7 +194,7 @@ namespace ElasticSearchConsoleApplication
         public List<LogEntry> GetTaskLogEntries(string taskId)
         {
 
-            var searchResults = _Client.Search<LogEntry>(s => s.From(0)
+            var searchResults = _ElasticSearchProxy.GetConnection().Search<LogEntry>(s => s.From(0)
                 .Size(5000)
                 .SortAscending(x => x.TimeStamp)
                 .Query(q => q
@@ -268,7 +207,7 @@ namespace ElasticSearchConsoleApplication
         public List<LogEntry> GetTaskLogEntries(string taskId, DateTime startRange, DateTime endRange)
         {
 
-            var searchResults = _Client.Search<LogEntry>(s => s.From(0)
+            var searchResults = _ElasticSearchProxy.GetConnection().Search<LogEntry>(s => s.From(0)
                 .Size(Int32.MaxValue)
                 .Filter(u => u.Range(r => r.OnField(e => e.TimeStamp).GreaterOrEquals(startRange).LowerOrEquals(endRange)))
                 .SortAscending(x => x.TimeStamp)
@@ -281,7 +220,7 @@ namespace ElasticSearchConsoleApplication
 
         public List<LogEntry> GetThreadLogEntries(string threadId)
         {
-            var searchResults = _Client.Search<LogEntry>(s => s.From(0)
+            var searchResults = _ElasticSearchProxy.GetConnection().Search<LogEntry>(s => s.From(0)
                 .Query(q => q
                     .Term(p => p.ThreadId, threadId))
                 .Size(5000)
@@ -294,7 +233,7 @@ namespace ElasticSearchConsoleApplication
 
         public List<LogEntry> GetThreadLogEntries(string threadId, DateTime startRange, DateTime endRange)
         {
-            var searchResults = _Client.Search<LogEntry>(s => s
+            var searchResults = _ElasticSearchProxy.GetConnection().Search<LogEntry>(s => s
                 .From(0)
                 .Filter(u => u.Range(r => r.OnField(e => e.TimeStamp).GreaterOrEquals(startRange).LowerOrEquals(endRange)))
                 .Query(q => q.Term(p => p.ThreadId, threadId))
@@ -322,7 +261,7 @@ namespace ElasticSearchConsoleApplication
             fieldName = "TaskId";
             termToSearch = "5";
 
-            var searchResultsDistinctMethodNames = _Client.Search<LogEntry>(s => s.From(0)
+            var searchResultsDistinctMethodNames = _ElasticSearchProxy.GetConnection().Search<LogEntry>(s => s.From(0)
                 .Aggregations(a => a.Terms("MethodNames", b => b.Field(e => e.MethodName).MinimumDocumentCount(2000).Size(50000)))
                 );
 
@@ -348,7 +287,7 @@ namespace ElasticSearchConsoleApplication
 
             foreach (var methodName in methodNames.Take(5))
             {
-                var searchResultsMethods = _Client.Search<LogEntry>(s => s.From(0)
+                var searchResultsMethods = _ElasticSearchProxy.GetConnection().Search<LogEntry>(s => s.From(0)
                     .Query(q => q.Term(t => t.OnField(n => n.MethodName).Value(methodName)))
                     .Size(100000)
                     );
@@ -364,7 +303,7 @@ namespace ElasticSearchConsoleApplication
             }
 
 
-            //var searchResults = _Client.Search<LogEntry>(s => s.From(0)
+            //var searchResults = _ElasticSearchProxy.GetConnection().Search<LogEntry>(s => s.From(0)
             //    .Query(q => q
             //        .Fuzzy(x => x.OnField(f => f.TaskId).Value(termToSearch).Fuzziness(50)))
             //    //Boost(1.0).Fuzziness(1).MaxExpansions(100).PrefixLength(0))).Explain()

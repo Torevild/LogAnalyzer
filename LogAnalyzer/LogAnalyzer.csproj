@@ -56,6 +56,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="ElasticSearchProxy.cs" />
     <Compile Include="ILogLoader.cs" />
     <Compile Include="LogAnalyzer.cs" />
     <Compile Include="LogEntry.cs" />

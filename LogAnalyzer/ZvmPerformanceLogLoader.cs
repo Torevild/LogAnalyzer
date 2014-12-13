@@ -1,14 +1,15 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Text;
+using System.Threading.Tasks;
+using ElasticSearchConsoleApplication;
 
-namespace ElasticSearchConsoleApplication
+namespace LogAnalyzer
 {
-    public class ZvmPerformanceLogLoader:ILogLoader
+    public class ZvmPerformanceLogLoader : ILogLoader
     {
         private const string m_folder = "logs";
         private const string m_logFilenamePattern = "perf.*";
@@ -17,58 +18,59 @@ namespace ElasticSearchConsoleApplication
         {
             Console.WriteLine("Going to load: {0} performance log files", filesNumber);
             var stopWatch = new Stopwatch();
-            foreach (var filename in Directory.EnumerateFiles(m_folder, m_logFilenamePattern))
+            foreach (var filename in Directory.EnumerateFiles(m_folder, m_logFilenamePattern, SearchOption.AllDirectories))
             {
-                var result = new List<LogEntry>();
+                Task processStringsTask = null;
+                var result = new ConcurrentBag<LogEntry>();
                 stopWatch.Restart();
                 using (var sr = new StreamReader(filename))
                 {
                     while (!sr.EndOfStream)
                     {
-                        var readLine = sr.ReadLine();
+                        var allLines = sr.ReadToEndAsync().Result.Split('\n');
 
-                        if (!string.IsNullOrEmpty(readLine))
+                        if (processStringsTask != null)
                         {
-                            int count = 0;
-                            int index = 0;
-                            foreach (char c in readLine)
-                            {
-                                if (c == ',')
-                                {
-                                    count++;
-                                    if (count == 4)
-                                    {
-                                        break;
-                                    }
-                                }
-                                index++;
-                            }
-
-                            string message;
-                            if (readLine.Length == index + 1)
-                            {
-                                message = string.Empty;
-                            }
-                            else
-                            {
-                                message = readLine.Substring(index + 1, readLine.Length - index - 2);
-                            }
-
-                            string[] line = readLine.Substring(0, index).Split(',');
-                            var logEntry = new LogEntry()
-                            {
-                                LogFilename = Path.GetFileNameWithoutExtension(filename),
-                                OwnerId = string.Empty,
-                                TaskId = string.Empty,
-                                TimeStamp = DateTime.Parse(line[0]), //6/12/2014 06:24:08.618
-                                LogLevel = string.Empty,
-                                ThreadId = Convert.ToInt32(line[1]),
-                                ClassName = line[2],
-                                MethodName = line[3],
-                                Message = message
-                            };
-                            result.Add(logEntry);
+                            processStringsTask.Wait();
                         }
+
+                        string filename1 = filename;
+                        processStringsTask = Task.Factory.StartNew(() =>
+                        {
+                            string logFilename = Path.GetFileNameWithoutExtension(filename1);
+                            Parallel.ForEach(allLines, currentLine =>
+                            {
+                                if (!string.IsNullOrEmpty(currentLine))
+                                {
+                                    int index = GetIndexOfLastDelimeterComma(currentLine);
+
+                                    string message;
+                                    if (currentLine.Length == index + 1)
+                                    {
+                                        message = string.Empty;
+                                    }
+                                    else
+                                    {
+                                        message = currentLine.Substring(index + 1, currentLine.Length - index - 2);
+                                    }
+
+                                    string[] line = currentLine.Substring(0, index).Split(',');
+                                    var logEntry = new LogEntry()
+                                    {
+                                        LogFilename = logFilename,
+                                        OwnerId = string.Empty,
+                                        TaskId = string.Empty,
+                                        TimeStamp = DateTime.Parse(line[0]), //6/12/2014 06:24:08.618
+                                        LogLevel = string.Empty,
+                                        ThreadId = Convert.ToInt32(line[1]),
+                                        ClassName = line[2],
+                                        MethodName = line[3],
+                                        Message = message
+                                    };
+                                    result.Add(logEntry);
+                                }
+                            });
+                        });
                     }
                     yield return result;
                     stopWatch.Stop();
@@ -79,12 +81,36 @@ namespace ElasticSearchConsoleApplication
 
         public bool IsAny()
         {
-            return Directory.EnumerateFiles(m_folder, m_logFilenamePattern).Any();
+            if (!Directory.Exists(m_folder))
+            {
+                Console.WriteLine("Path {0} doesn't exist", Path.Combine(AppDomain.CurrentDomain.BaseDirectory, m_folder));
+                return false;
+            }
+            return Directory.EnumerateFiles(m_folder, m_logFilenamePattern, SearchOption.AllDirectories).Any();
         }
 
         public int GetFilesNumber()
         {
-            return Directory.EnumerateFiles(m_folder, m_logFilenamePattern).Count();
+            return Directory.EnumerateFiles(m_folder, m_logFilenamePattern, SearchOption.AllDirectories).Count();
+        }
+
+        private static int GetIndexOfLastDelimeterComma(string line)
+        {
+            int count = 0;
+            int index = 0;
+            for (int i = 0; i < line.Length; i++)
+            {
+                if (line[i] == ',')
+                {
+                    count++;
+                    if (count == 4)
+                    {
+                        break;
+                    }
+                }
+                index++;
+            }
+            return index;
         }
     }
 }

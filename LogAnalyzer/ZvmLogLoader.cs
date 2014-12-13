@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace ElasticSearchConsoleApplication
 {
@@ -17,38 +18,58 @@ namespace ElasticSearchConsoleApplication
         {
             Console.WriteLine("Going to load: {0} zvm log files", filesNumber);
             var stopWatch = new Stopwatch();
-            foreach (var filename in Directory.EnumerateFiles(m_folder, m_logFilenamePattern))
+            foreach (var filename in Directory.EnumerateFiles(m_folder, m_logFilenamePattern, SearchOption.AllDirectories))
             {
+                Task processStringsTask = null;
                 var list = new ConcurrentBag<LogEntry>();
                 stopWatch.Restart();
                 using (var sr = new StreamReader(filename))
                 {
                     while (!sr.EndOfStream)
                     {
-                        var readLine = sr.ReadLine();
+                        var allLines = sr.ReadToEndAsync().Result.Split('\n');
 
-                        if (readLine != null)
+                        if (processStringsTask != null)
                         {
-                            if (readLine.IndexOf(',') != 8)
-                                continue;
-
-                            var index = GetIndexOfLastDelimeterComma(readLine);
-
-                            string[] line = readLine.Substring(0, index).Split(',');
-                            var logEntry = new LogEntry()
-                           {
-                               LogFilename = Path.GetFileNameWithoutExtension(filename),
-                               OwnerId = line[0],
-                               TaskId = line[1],
-                               TimeStamp = DateTime.ParseExact(line[2], "yy-MM-dd HH:mm:ss.ff", CultureInfo.CurrentCulture),
-                               LogLevel = line[3],
-                               ThreadId = Convert.ToInt32(line[4]),
-                               ClassName = line[5],
-                               MethodName = line[6],
-                               Message = readLine.Substring(index + 1, readLine.Length - index - 2)
-                           };
-                            list.Add(logEntry);
+                            processStringsTask.Wait();
                         }
+
+                        string filename1 = filename;
+                        processStringsTask = Task.Factory.StartNew(() =>
+                        {
+                            string logFilename = Path.GetFileNameWithoutExtension(filename1);
+                            Parallel.ForEach(allLines, currentLine =>
+                            {
+                                if (!string.IsNullOrEmpty(currentLine))
+                                {
+                                    //Skipe the line with headers
+                                    if (currentLine.IndexOf(',') != 8)
+                                    {
+                                        return;
+                                    }
+
+                                    var index = GetIndexOfLastDelimeterComma(currentLine);
+
+
+                                    string[] line = currentLine.Substring(0, index).Split(',');
+                                    var logEntry = new LogEntry()
+                                    {
+                                        LogFilename = logFilename,
+                                        OwnerId = line[0],
+                                        TaskId = line[1],
+                                        TimeStamp =
+                                            DateTime.ParseExact(line[2], "yy-MM-dd HH:mm:ss.ff",
+                                                CultureInfo.CurrentCulture),
+                                        LogLevel = line[3],
+                                        ThreadId = Convert.ToInt32(line[4]),
+                                        ClassName = line[5],
+                                        MethodName = line[6],
+                                        Message = currentLine.Substring(index + 1, currentLine.Length - index - 2)
+                                    };
+                                    list.Add(logEntry);
+                                }
+                            });
+                        });
                     }
                     yield return list;
                     stopWatch.Stop();
@@ -57,13 +78,13 @@ namespace ElasticSearchConsoleApplication
             }
         }
 
-        private static int GetIndexOfLastDelimeterComma(string readLine)
+        private static int GetIndexOfLastDelimeterComma(string line)
         {
             int count = 0;
             int index = 0;
-            foreach (char c in readLine)
+            for (int i = 0; i < line.Length; i++)
             {
-                if (c == ',')
+                if (line[i] == ',')
                 {
                     count++;
                     if (count == 7)
@@ -78,12 +99,18 @@ namespace ElasticSearchConsoleApplication
 
         public bool IsAny()
         {
-            return Directory.EnumerateFiles(m_folder, m_logFilenamePattern).Any();
+            if (!Directory.Exists(m_folder))
+            {
+                Console.WriteLine("Path {0} doesn't exist", Path.Combine(AppDomain.CurrentDomain.BaseDirectory, m_folder));
+                return false;
+            }
+
+            return Directory.EnumerateFiles(m_folder, m_logFilenamePattern, SearchOption.AllDirectories).Any();
         }
 
         public int GetFilesNumber()
         {
-            return Directory.EnumerateFiles(m_folder, m_logFilenamePattern).Count();
+            return Directory.EnumerateFiles(m_folder, m_logFilenamePattern, SearchOption.AllDirectories).Count();
         }
     }
 

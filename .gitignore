@@ -2,3 +2,5 @@ Debug
 Release
 packages
 *.zip
+*.suo
+LogAnalyzer.v12.suo

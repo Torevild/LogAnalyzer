@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
 using LogAnalyzer;
 
@@ -237,22 +238,22 @@ namespace ElasticSearchConsoleApplication
                             }
                         case ConsoleKey.D8:
                             Console.WriteLine("Searching unique method names in log files...");
-                            List<string> uniqueMethodNames = searchController.GetUniqueMethodNames(50000, 500);
+                            List<KeyValuePair<string, long>> uniqueMethodNames = searchController.GetUniqueMethodNames(50000, 500);
                             Console.WriteLine("Found {0} unique method names in log files", uniqueMethodNames.Count);
 
                             filename = string.Format("UniqueMethodNames.txt");
                             pathToSave = Path.Combine(folderName, filename);
                             SaveResultsToFile(pathToSave, uniqueMethodNames);
-                            Console.WriteLine("Saved {0} unique method names to file:{1}", logValuePairs.Count, pathToSave);
+                            Console.WriteLine("Saved {0} unique method names to file:{1}", uniqueMethodNames.Count, pathToSave);
 
                             Console.WriteLine("Searching for high rate log prints in log files...");
-                            logEntries = searchController.GetHighRateLogLinesOrderedByLength(uniqueMethodNames);
+                            logEntries = searchController.GetHighRateLogLinesOrderedByLength(uniqueMethodNames.ConvertAll(x => x.Key));
                             filename = string.Format("HighRatesLogPrints.txt");
                             pathToSave = Path.Combine(folderName, filename);
                             SaveResultsToFile(pathToSave, logEntries);
-                            Console.WriteLine("Saved {0} high rate log prints to file:{1}", logValuePairs.Count, pathToSave);
-                            
-                            
+                            Console.WriteLine("Saved {0} high rate log prints to file:{1}", logEntries.Count, pathToSave);
+
+
                             PressAnyKeyToContinue();
                             break;
 
@@ -435,7 +436,7 @@ namespace ElasticSearchConsoleApplication
             Console.WriteLine("5 - Get all log entries for thread");
             Console.WriteLine("6 - Get all log entries by taskId that exceed time threshold");
             Console.WriteLine("7 - Get all log entries by threadId that exceed time threshold");
-            Console.WriteLine("8 - Find term hits");
+            Console.WriteLine("8 - Find most frequent log prints");
             Console.WriteLine("9 - Clean all");
             Console.WriteLine("ESC - Exit");
         }
@@ -491,6 +492,36 @@ namespace ElasticSearchConsoleApplication
             using (var sw = new StreamWriter(fileName))
             {
                 sw.WriteLine(dataToSave);
+            }
+        }
+
+        private static void SaveResultsToFile(string fileName, IEnumerable<KeyValuePair<string, long>> dataToSave)
+        {
+            var stringBuilder = new StringBuilder();
+            foreach (var item in dataToSave)
+            {
+                stringBuilder.AppendLine(string.Format("{0},{1}", item.Key, item.Value));
+            }
+
+            if (stringBuilder.Length == 0)
+                return;
+
+            string folderName = Path.GetDirectoryName(fileName);
+
+            if (string.IsNullOrEmpty(folderName))
+            {
+                Console.WriteLine("Output folder name cannot be null or empty");
+                return;
+            }
+
+            if (!Directory.Exists(folderName))
+            {
+                Directory.CreateDirectory(folderName);
+            }
+
+            using (var sw = new StreamWriter(fileName))
+            {
+                sw.WriteLine(stringBuilder.ToString());
             }
         }
     }

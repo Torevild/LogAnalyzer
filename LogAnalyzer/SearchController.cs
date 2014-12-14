@@ -181,41 +181,19 @@ namespace LogAnalyzer
             foreach (var taskId in taskIds)
             {
                 var searchResults =
-                    _ElasticSearchProxy.GetConnection().Search<LogEntry>(s => s.From(0).Size(Int32.MaxValue).Query(q => q.Term(p => p.TaskId, taskId)));
+                    _ElasticSearchProxy.GetConnection().Search<LogEntry>(s => s.From(0).Size(Int32.MaxValue).Query(q => q.Term(p => p.TaskId, taskId)).SortAscending(x => x.TimeStamp));
 
-                var searchResults2 = _ElasticSearchProxy.GetConnection().Search<LogEntry>(s => s.From(0)
-                    .Size(1)
-                    .Query(q => q
-                        .Term(p => p.MethodName, "settaskname") && q.Term(p => p.TaskId, taskId)));
+                var name = GetName(taskId);
 
-                var searchResults3 = _ElasticSearchProxy.GetConnection().Search<LogEntry>(s => s.From(0)
-                    .Size(1)
-                    .Query(q => q
-                        .Term(p => p.MethodName, "createremotemanagertask") && q.Term(p => p.TaskId, taskId)));
-
-                var searchResults4 = _ElasticSearchProxy.GetConnection().Search<LogEntry>(s => s.From(0)
-                    .Size(1)
+                var searchErrorsResults = _ElasticSearchProxy.GetConnection().Search<LogEntry>(s => s.From(0)
+                    .Size(1).SortAscending(x => x.TimeStamp)
                     .Query(q => q.Term(t1 => t1.OnField(x => x.LogLevel).Value("error")) && q.Term(t2 => t2.OnField(f => f.TaskId).Value(taskId)))
                 );
 
-                var searchDocuments = searchResults.Documents.ToList();
-                bool hasErrors = searchResults4.Documents.Any();
-                LogEntry errorLogEntry = searchResults4.Documents.FirstOrDefault();
+                bool hasErrors = searchErrorsResults.Documents.Any();
+                LogEntry errorLogEntry = searchErrorsResults.Documents.FirstOrDefault();
 
-                string name = string.Empty;
-                var taskNameEntry = searchResults2.Documents.FirstOrDefault();
-                if (taskNameEntry != null)
-                {
-                    name = taskNameEntry.Message;
-                }
-                else
-                {
-                    taskNameEntry = searchResults3.Documents.FirstOrDefault();
-                    if (taskNameEntry != null)
-                    {
-                        name = taskNameEntry.Message;
-                    }
-                }
+                var searchDocuments = searchResults.Documents.ToList();
 
                 taskMetadatas.Add(new ZTaskMetadata()
                 {
@@ -230,6 +208,56 @@ namespace LogAnalyzer
             return taskMetadatas;
         }
 
+        private string GetName(string taskId)
+        {
+            string name = string.Empty;
+            var taskNameEntry = _ElasticSearchProxy.GetConnection().Search<LogEntry>(s => s.From(0)
+                .Size(1).SortAscending(x => x.TimeStamp).Query(q => q.Term(p => p.MethodName, "settaskname") && q.Term(p => p.TaskId, taskId)))
+                .Documents.FirstOrDefault();
+            if (taskNameEntry != null)
+            {
+                name = taskNameEntry.Message;
+            }
+            else
+            {
+                taskNameEntry = _ElasticSearchProxy.GetConnection().Search<LogEntry>(s => s.From(0)
+                    .Size(1).SortAscending(x => x.TimeStamp)
+                    .Query(q => q.Term(p => p.MethodName, "createremotemanagertask") && q.Term(p => p.TaskId, taskId))).Documents.FirstOrDefault();
+                if (taskNameEntry != null)
+                {
+                    name = taskNameEntry.Message;
+                }
+                else
+                {
+                    taskNameEntry = _ElasticSearchProxy.GetConnection().Search<LogEntry>(s => s.From(0)
+                        .Size(1).SortAscending(x => x.TimeStamp)
+                        .Query(q => q.Term(p => p.MethodName, "collectlogsforcurrentsiteinternal") && q.Term(p => p.TaskId, taskId)))
+                        .Documents.FirstOrDefault();
+                    if (taskNameEntry != null)
+                    {
+                        name = string.Format("{0}:{1}", taskNameEntry.ClassName, taskNameEntry.Message);
+                    }
+                    else
+                    {
+                        taskNameEntry = _ElasticSearchProxy.GetConnection().Search<LogEntry>(s => s.From(0)
+                            .Size(1).SortAscending(x => x.TimeStamp)
+                            .Query(q => q.Term(p => p.MethodName, "starttransaction") && q.Term(p => p.TaskId, taskId))).Documents.FirstOrDefault();
+                        if (taskNameEntry != null)
+                        {
+                            name = taskNameEntry.Message;
+                        }
+                        taskNameEntry = _ElasticSearchProxy.GetConnection().Search<LogEntry>(s => s.From(0)
+                            .Size(1).SortAscending(x => x.TimeStamp)
+                            .Query(q => q.Term(p => p.MethodName, "ping") && q.Term(p => p.TaskId, taskId))).Documents.FirstOrDefault();
+                        if (taskNameEntry != null)
+                        {
+                            name = string.Format("{0}:{1}", taskNameEntry.ClassName, taskNameEntry.MethodName);
+                        }
+                    }
+                }
+            }
+            return name;
+        }
 
 
         public List<LogEntry> GetLogEntriesForThread(string threadId, DateTime startRange, DateTime endRange)
@@ -305,13 +333,13 @@ namespace LogAnalyzer
             return searchResults.Documents.ToList();
         }
 
-        public List<string> GetUniqueMethodNames(int maxNumber, int minHitsCount)
+        public List<KeyValuePair<string, long>> GetUniqueMethodNames(int maxNumber, int minHitsCount)
         {
             var searchResultsDistinctMethodNames = _ElasticSearchProxy.GetConnection().Search<LogEntry>(s => s.From(0)
                 .Aggregations(a => a.Terms("MethodNames", b => b.Field(e => e.MethodName).MinimumDocumentCount(minHitsCount).Size(maxNumber)))
                 );
 
-            var uniqueMethodNames = new List<string>();
+            var uniqueMethodNames = new List<KeyValuePair<string, long>>();
 
             foreach (var s in searchResultsDistinctMethodNames.Aggregations.Values)
             {
@@ -324,7 +352,7 @@ namespace LogAnalyzer
 
                     foreach (var item in items)
                     {
-                        uniqueMethodNames.Add(item.Key);
+                        uniqueMethodNames.Add(new KeyValuePair<string, long>(item.Key, item.DocCount));
                     }
                 }
             }

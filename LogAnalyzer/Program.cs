@@ -238,13 +238,23 @@ namespace ElasticSearchConsoleApplication
                                 break;
                             }
                         case ConsoleKey.D8:
-                            Console.WriteLine("Please enter field for search:");
-                            string fieldName = "1";//Console.ReadLine();
-                            Console.WriteLine("Please enter term for search:");
-                            string termToSearch = "2";//Console.ReadLine();
-                            Console.WriteLine("Searching term hits...");
-                            searchController.FindHits(fieldName, termToSearch);
-                            Console.WriteLine("Found");
+                            Console.WriteLine("Searching unique method names in log files...");
+                            List<string> uniqueMethodNames = searchController.GetUniqueMethodNames(50000, 500);
+                            Console.WriteLine("Found {0} unique method names in log files", uniqueMethodNames.Count);
+
+                            filename = string.Format("UniqueMethodNames.txt");
+                            pathToSave = Path.Combine(folderName, filename);
+                            SaveResultsToFile(pathToSave, uniqueMethodNames);
+                            Console.WriteLine("Saved {0} unique method names to file:{1}", logValuePairs.Count, pathToSave);
+
+                            Console.WriteLine("Searching for high rate log prints in log files...");
+                            logEntries = searchController.GetHighRateLogLinesOrderedByLength(uniqueMethodNames);
+                            filename = string.Format("HighRatesLogPrints.txt");
+                            pathToSave = Path.Combine(folderName, filename);
+                            SaveResultsToFile(pathToSave, logEntries);
+                            Console.WriteLine("Saved {0} high rate log prints to file:{1}", logValuePairs.Count, pathToSave);
+                            
+                            
                             PressAnyKeyToContinue();
                             break;
 

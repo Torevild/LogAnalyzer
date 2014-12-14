@@ -1,9 +1,8 @@
 ﻿using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using ElasticSearchConsoleApplication;
@@ -195,9 +194,9 @@ namespace LogAnalyzer
                         .Term(p => p.MethodName, "createremotemanagertask") && q.Term(p => p.TaskId, taskId)));
 
                 var searchResults4 = _ElasticSearchProxy.GetConnection().Search<LogEntry>(s => s.From(0)
-                    .Size(Int32.MaxValue)
-                    .Query(q => q
-                        .Term(p => p.LogLevel, "Error") && q.Term(p => p.TaskId, taskId)));
+                    .Size(1)
+                    .Query(q => q.Term(t1=>t1.OnField(x=>x.LogLevel).Value("error")) && q.Term(t2=>t2.OnField(f=>f.TaskId).Value(taskId)))
+                );
 
                 var searchDocuments = searchResults.Documents.ToList();
                 bool hasErrors = searchResults4.Documents.Any();
@@ -304,27 +303,13 @@ namespace LogAnalyzer
             return searchResults.Documents.ToList();
         }
 
-        public void FindHits(string fieldName, string termToSearch)
+        public List<string> GetUniqueMethodNames(int maxNumber, int minHitsCount)
         {
-            var properties = typeof(LogEntry).GetProperties();
-
-            fieldName = (from a in properties
-                         where a.Name.Equals(fieldName)
-                         select a.Name).FirstOrDefault();
-
-            //if (string.IsNullOrEmpty(fieldName))
-            //{
-            //    throw  new Exception(string.Format("Invalid fieldName {0}. It doesn't beloq to logEntry class", fieldName));
-            //}
-
-            fieldName = "TaskId";
-            termToSearch = "5";
-
             var searchResultsDistinctMethodNames = _ElasticSearchProxy.GetConnection().Search<LogEntry>(s => s.From(0)
-                .Aggregations(a => a.Terms("MethodNames", b => b.Field(e => e.MethodName).MinimumDocumentCount(2000).Size(50000)))
+                .Aggregations(a => a.Terms("MethodNames", b => b.Field(e => e.MethodName).MinimumDocumentCount(minHitsCount).Size(maxNumber)))
                 );
 
-            var methodNames = new List<string>();
+            var uniqueMethodNames = new List<string>();
 
             foreach (var s in searchResultsDistinctMethodNames.Aggregations.Values)
             {
@@ -332,50 +317,56 @@ namespace LogAnalyzer
                 if (bucket != null)
                 {
                     var items = from a in bucket.Items
-                                where ((KeyItem)a).DocCount > 2000
                                 orderby ((KeyItem)a).DocCount descending
                                 select (KeyItem)a;
 
-                    foreach (var item in items.Take(10))
+                    foreach (var item in items)
                     {
-                        Console.WriteLine("MethodName:{0} DocCount:{1}", item.Key, item.DocCount);
-                        methodNames.Add(item.Key);
+                        uniqueMethodNames.Add(item.Key);
                     }
                 }
             }
+            return uniqueMethodNames;
+        }
 
-            foreach (var methodName in methodNames.Take(5))
+        public List<LogEntry> GetHighRateLogLinesOrderedByLength(List<string> uniqueMethodNames)
+        {
+            //var properties = typeof(LogEntry).GetProperties();
+
+            //fieldName = (from a in properties
+            //             where a.Name.Equals(fieldName)
+            //             select a.Name).FirstOrDefault();
+
+            //if (string.IsNullOrEmpty(fieldName))
+            //{
+            //    throw  new Exception(string.Format("Invalid fieldName {0}. It doesn't beloq to logEntry class", fieldName));
+            //}
+
+            //fieldName = "TaskId";
+            //termToSearch = "5";
+
+            var uniqueLogEntriesStringBuilder = new StringBuilder();
+            var list = new List<LogEntry>();
+
+            foreach (var methodName in uniqueMethodNames)
             {
                 var searchResultsMethods = _ElasticSearchProxy.GetConnection().Search<LogEntry>(s => s.From(0)
                     .Query(q => q.Term(t => t.OnField(n => n.MethodName).Value(methodName)))
-                    .Size(100000)
+                    .Size(40)
                     );
 
+                HashSet<int> uniqueMessages = new HashSet<int>();
 
-                Console.WriteLine();
-
-                foreach (var logEntry in searchResultsMethods.Documents.OrderByDescending(x => x.Message.Length).Take(3))
+                foreach (var logEntry in searchResultsMethods.Documents.OrderByDescending(x => x.Message.Length))
                 {
-                    Console.WriteLine(logEntry.ToStringWithoutFieldNames());
-                    Console.WriteLine();
+                    if (!uniqueMessages.Contains(logEntry.Message.Length))
+                    {
+                        list.Add(logEntry);
+                        uniqueMessages.Add(logEntry.Message.Length);
+                    }
                 }
             }
-
-
-            //var searchResults = _ElasticSearchProxy.GetConnection().Search<LogEntry>(s => s.From(0)
-            //    .Query(q => q
-            //        .Fuzzy(x => x.OnField(f => f.TaskId).Value(termToSearch).Fuzziness(50)))
-            //    //Boost(1.0).Fuzziness(1).MaxExpansions(100).PrefixLength(0))).Explain()
-            //    .Size(5000)
-            //    //.SortAscending(x => x.TimeStamp));
-            //    );
-
-            //foreach (var hit in searchResults.Hits.Where(x => x.Score > 1))
-            //{
-            //    Console.WriteLine("Score:{0}", hit.Score);
-            //    Console.WriteLine(hit.Id);
-            //    //Console.WriteLine("Source:{0}", hit.Source.ToStringWithoutFieldNames());
-            //}
+            return list;
         }
     }
 }

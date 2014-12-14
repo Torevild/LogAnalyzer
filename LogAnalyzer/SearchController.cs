@@ -195,11 +195,12 @@ namespace LogAnalyzer
 
                 var searchResults4 = _ElasticSearchProxy.GetConnection().Search<LogEntry>(s => s.From(0)
                     .Size(1)
-                    .Query(q => q.Term(t1=>t1.OnField(x=>x.LogLevel).Value("error")) && q.Term(t2=>t2.OnField(f=>f.TaskId).Value(taskId)))
+                    .Query(q => q.Term(t1 => t1.OnField(x => x.LogLevel).Value("error")) && q.Term(t2 => t2.OnField(f => f.TaskId).Value(taskId)))
                 );
 
                 var searchDocuments = searchResults.Documents.ToList();
                 bool hasErrors = searchResults4.Documents.Any();
+                LogEntry errorLogEntry = searchResults4.Documents.FirstOrDefault();
 
                 string name = string.Empty;
                 var taskNameEntry = searchResults2.Documents.FirstOrDefault();
@@ -222,7 +223,8 @@ namespace LogAnalyzer
                     StarTime = searchDocuments.First().TimeStamp,
                     StopTime = searchDocuments.Last().TimeStamp,
                     Name = name,
-                    HasErrors = hasErrors
+                    HasErrors = hasErrors,
+                    ErrorLogEntry = errorLogEntry ?? new LogEntry()
                 });
             }
             return taskMetadatas;

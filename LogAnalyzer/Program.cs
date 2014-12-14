@@ -1,10 +1,8 @@
 ﻿using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
-using System.Linq;
 using System.Text;
 using LogAnalyzer;
 
@@ -50,7 +48,7 @@ namespace ElasticSearchConsoleApplication
                             }
 
                         case ConsoleKey.D1:
-                            Console.WriteLine("Loading ZVM log files to memory. Please wait");
+                            Console.WriteLine("Loading ZVM log files to memory. Please wait. It can take few minutes");
                             stopWatch.Reset();
                             stopWatch.Start();
                             int filesNumber = searchController.LoadToMemory(LogFileType.ZvmLog);
@@ -61,7 +59,7 @@ namespace ElasticSearchConsoleApplication
                             break;
 
                         case ConsoleKey.D2:
-                            Console.WriteLine("Loading ZVM performance log files to memory. Please wait");
+                            Console.WriteLine("Loading ZVM performance log files to memory. Please wait. It can take few minutes");
                             stopWatch.Reset();
                             stopWatch.Start();
                             filesNumber = searchController.LoadToMemory(LogFileType.ZvmPerformanceLog);

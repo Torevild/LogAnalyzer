@@ -57,6 +57,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="ElasticSearchProxy.cs" />
+    <Compile Include="GeneralLogLoader.cs" />
     <Compile Include="ILogLoader.cs" />
     <Compile Include="LogAnalyzer.cs" />
     <Compile Include="LogEntry.cs" />
